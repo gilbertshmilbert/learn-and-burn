@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
+
+import {FHE, euint32, externalEuint32} from "@fhevm/solidity/lib/FHE.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 
 /**
  * Learn & Burn Platform
- * 
- * Platform for learning about FHE technology.
- * Users complete tests and submit encrypted scores. They can retake tests
- * and resubmit scores. Users can also create custom tests with random questions.
+ * Platform for learning about FHE technology
  */
-contract ZamaLearning {
+contract ZamaLearning is ZamaEthereumConfig {
     
     struct Test {
         address creator;
@@ -23,7 +23,7 @@ contract ZamaLearning {
     struct TestScore {
         address student;
         uint256 testId;
-        bytes32 encryptedScore;
+        euint32 encryptedScore;
         uint256 submittedAt;
         uint256 attemptNumber;
     }
@@ -47,7 +47,6 @@ contract ZamaLearning {
     event ScoreSubmitted(
         uint256 indexed testId,
         address indexed student,
-        bytes32 encryptedScore,
         uint256 attemptNumber
     );
     
@@ -87,21 +86,24 @@ contract ZamaLearning {
     
     function submitScore(
         uint256 _testId,
-        bytes32 _encryptedScore,
-        bytes calldata _attestation
+        externalEuint32 encryptedScore,
+        bytes calldata inputProof
     ) external {
         Test storage test = tests[_testId];
         require(test.creator != address(0), "Test does not exist");
         require(test.isActive, "Test is not active");
-        require(_encryptedScore != bytes32(0), "Encrypted score cannot be empty");
         
         uint256 attemptNumber = userAttemptCount[_testId][msg.sender] + 1;
         userAttemptCount[_testId][msg.sender] = attemptNumber;
         
+        euint32 score = FHE.fromExternal(encryptedScore, inputProof);
+        FHE.allow(score, msg.sender);
+        FHE.allow(score, test.creator);
+        
         testScores[_testId].push(TestScore({
             student: msg.sender,
             testId: _testId,
-            encryptedScore: _encryptedScore,
+            encryptedScore: score,
             submittedAt: block.timestamp,
             attemptNumber: attemptNumber
         }));
@@ -117,7 +119,7 @@ contract ZamaLearning {
             userCompletedTests[msg.sender].push(_testId);
         }
         
-        emit ScoreSubmitted(_testId, msg.sender, _encryptedScore, attemptNumber);
+        emit ScoreSubmitted(_testId, msg.sender, attemptNumber);
     }
     
     function deactivateTest(uint256 _testId) external {
